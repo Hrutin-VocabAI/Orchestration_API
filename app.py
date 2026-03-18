@@ -199,7 +199,8 @@ def transcribe():
         LOGGER.info(f"[{rid}] [STEP F] Calling TranscriptionService.process_audio() ...")
 
         transcription_service  = TranscriptionService(asr_url, diar_url, None)
-        transcription_result   = transcription_service.process_audio(buffer, file.filename)
+        safe_filename = os.path.splitext(file.filename)[0] + ".wav"
+        transcription_result   = transcription_service.process_audio(buffer, safe_filename)
 
         tF1 = time.time()
         LOGGER.info(f"[{rid}] [STEP F DONE] process_audio took {tF1 - tF0:.2f}s  entries={len(transcription_result) if transcription_result else 0}")
