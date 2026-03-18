@@ -1,0 +1,17 @@
+[Unit]
+Description=Gunicorn service for Flask Orchestration API (Final_API)
+After=network.target
+
+[Service]
+User=vocab
+Group=vocab
+WorkingDirectory=/media/vocab/DATA4/Vocab_Services_/DockerImage_CRED_ASR_/SURIYA/ORCHESTRATOR_API/Final_API
+#Environment="PYTHONPATH=/media/vocab/DATA4/Vocab_Services_/DockerImage_CRED_ASR_/SURIYA/ORCHESTRATOR_API/Final_API"
+ExecStart=/home/vocab/anaconda3/bin/gunicorn \
+    -c /media/vocab/DATA4/Vocab_Services_/DockerImage_CRED_ASR_/SURIYA/ORCHESTRATOR_API/Final_API/gunicorn_config.py \
+    app:app
+
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
