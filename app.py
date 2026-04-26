@@ -8,6 +8,7 @@ from io import BytesIO
 from itertools import cycle
 
 from flask import Flask, request, jsonify, g
+from pydub import AudioSegment
 
 from audio_downloader import AudioHelper
 from request_validator import RequestValidator
@@ -227,6 +228,124 @@ def transcribe():
     finally:
         if os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)
+
+
+# ----------------------------------------------------------------
+# /stereo_transcribe (file upload, split channels)
+# ----------------------------------------------------------------
+@app.route("/stereo_transcribe", methods=["POST"])
+@log_request("stereo_upload")
+def stereo_transcribe():
+    """
+    Accepts a stereo audio file upload, splits L/R channels, runs VAD ASR on each,
+    merges them, and returns the same rich response format used elsewhere.
+
+    Expects:
+      - file: multipart upload (.wav/.mp3/others supported by ffmpeg/pydub)
+      - conversation_id (optional): form-data; if missing, auto-generated like Voice2Chat
+    """
+    t0 = time.time()
+    rid = getattr(g, "request_id", str(uuid.uuid4())[:8])
+
+    LOGGER.info(f"[{rid}] ===== /stereo_transcribe START =====")
+    LOGGER.info(f"[{rid}] [REQ] content_length={request.content_length} mimetype={request.mimetype}")
+
+    conversation_id = request.form.get("conversation_id")
+    if not conversation_id:
+        conversation_id = f"auto_{uuid.uuid4().hex[:8]}"
+        LOGGER.info(f"[{rid}] No conversation_id provided, generated: {conversation_id}")
+
+    if "file" not in request.files:
+        LOGGER.error(f"[{rid}] No file provided")
+        return jsonify({"error": "No file provided"}), 400
+
+    file = request.files["file"]
+    if not file or file.filename == "":
+        LOGGER.error(f"[{rid}] Empty file")
+        return jsonify({"error": "Empty file"}), 400
+
+    audio_data = file.read()
+    if not audio_data:
+        LOGGER.error(f"[{rid}] Uploaded file has 0 bytes after read()")
+        return jsonify({"error": "Uploaded file is empty"}), 400
+
+    # Convert + detect channels WITHOUT downmixing (does not affect other endpoints).
+    buffer, channels = AudioHelper().check_channels_and_convert(BytesIO(audio_data), file.content_type)
+    if buffer is None or channels == 0:
+        LOGGER.error(f"[{rid}] Unprocessable file uploaded: {file.filename}")
+        return jsonify({"error": "Can't process this file (possibly corrupted or empty)."}), 400
+
+    if channels == 1:
+        LOGGER.error(f"[{rid}] Mono file uploaded ({channels} channels). /stereo_transcribe requires stereo.")
+        return jsonify({"error": "Mono file uploaded. /stereo_transcribe requires stereo audio."}), 400
+
+    temp_files = []
+    try:
+        # Save standardized WAV for duration measurement (consistent across formats).
+        temp_audio_path = os.path.join(RESULTS_DIR, f"{conversation_id}_stereo_temp.wav")
+        with open(temp_audio_path, "wb") as fout:
+            fout.write(buffer.getvalue())
+        temp_files.append(temp_audio_path)
+
+        audio_duration = CallAnalyzer.get_audio_duration_from_file(temp_audio_path)
+        if audio_duration is None:
+            audio_duration = 0
+
+        # Split channels into two mono buffers.
+        buffer.seek(0)
+        audio = AudioSegment.from_file(buffer, format="wav")
+        mono_channels = audio.split_to_mono()
+        if len(mono_channels) < 2:
+            LOGGER.error(f"[{rid}] Failed to split into 2 channels (channels={channels}, split={len(mono_channels)})")
+            return jsonify({"error": "Stereo split failed. Please upload a valid stereo file."}), 400
+
+        ch1_buffer = BytesIO()
+        mono_channels[0].export(ch1_buffer, format="wav", parameters=["-acodec", "pcm_s16le"])
+        ch1_buffer.seek(0)
+
+        ch2_buffer = BytesIO()
+        mono_channels[1].export(ch2_buffer, format="wav", parameters=["-acodec", "pcm_s16le"])
+        ch2_buffer.seek(0)
+
+        # Transcribe both channels via VAD and merge.
+        ASR_URL = get_next_asr_url()
+        VAD_URL = get_next_vad_url()
+        LOGGER.info(f"[{rid}] Selected ASR URL: {ASR_URL}")
+        LOGGER.info(f"[{rid}] Selected VAD URL: {VAD_URL}")
+
+        transcription_service = TranscriptionService(ASR_URL, None, VAD_URL)
+
+        transcription1 = transcription_service.process_audio_VAD(ch1_buffer, "audio1.wav")
+        file1_path = os.path.join(RESULTS_DIR, f"{conversation_id}_audio1.json")
+        temp_files.append(file1_path)
+        file_service.save_transcription_json(transcription1, file1_path)
+
+        transcription2 = transcription_service.process_audio_VAD(ch2_buffer, "audio2.wav")
+        file2_path = os.path.join(RESULTS_DIR, f"{conversation_id}_audio2.json")
+        temp_files.append(file2_path)
+        file_service.save_transcription_json(transcription2, file2_path)
+
+        merged_path = os.path.join(RESULTS_DIR, f"{conversation_id}_combined.json")
+        transcriptions = file_service.merge_transcripts_json(file1_path, file2_path, merged_path)
+        temp_files.append(merged_path)
+
+        response = JSONUtils.generate_rich_response(conversation_id, transcriptions, audio_duration, RESULTS_DIR)
+
+        total = time.time() - t0
+        LOGGER.info(f"[{rid}] ===== /stereo_transcribe COMPLETE in {total:.2f}s =====")
+        return jsonify(response), 200
+
+    except Exception as e:
+        LOGGER.error(f"[{rid}] Exception occurred -> {str(e)}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+    finally:
+        for temp_file in temp_files:
+            if os.path.exists(temp_file):
+                try:
+                    os.remove(temp_file)
+                except Exception:
+                    pass
 
 
 # ----------------------------------------------------------------

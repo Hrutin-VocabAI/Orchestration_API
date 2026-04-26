@@ -2,6 +2,7 @@ import hashlib
 import io
 import os
 import requests
+from typing import Optional, Tuple
 from pydub import AudioSegment
 from logger import SYSTEM_LOGGER
 
@@ -157,6 +158,46 @@ class AudioHelper:
         except Exception as e:
             self.logger.warning(f"Failed to load WAV with hint, trying auto-detect: {e}")
             return self._convert_to_wav(audio_buffer, None)
+
+    def check_channels_and_convert(self, audio_buffer: io.BytesIO, content_type: Optional[str]) -> Tuple[Optional[io.BytesIO], int]:
+        """
+        Convert/resample audio to WAV@16kHz while preserving channel count.
+
+        This is intended for stereo/dual-channel workflows where downmixing to mono
+        would lose channel separation. It does NOT change existing behavior of
+        convert_if_needed(), which intentionally downmixes to 1 channel.
+        """
+        if audio_buffer.getbuffer().nbytes == 0:
+            self.logger.error("Audio buffer is empty")
+            return None, 0
+
+        ext = MIME_TO_EXT.get(content_type, None)
+        audio_buffer.seek(0)
+        try:
+            try:
+                format_hint = ext.strip(".") if ext else None
+                audio = AudioSegment.from_file(audio_buffer, format=format_hint)
+            except Exception as e:
+                self.logger.warning(f"Failed to load with hint {ext}, trying auto-detect: {e}")
+                audio_buffer.seek(0)
+                audio = AudioSegment.from_file(audio_buffer)
+        except Exception as e:
+            self.logger.error(f"Failed to decode audio: {e}")
+            return None, 0
+
+        channels = int(getattr(audio, "channels", 0) or 0)
+        if channels <= 0:
+            return None, 0
+
+        try:
+            audio = audio.set_frame_rate(16000)
+            wav_buffer = io.BytesIO()
+            audio.export(wav_buffer, format="wav", parameters=["-acodec", "pcm_s16le"])
+            wav_buffer.seek(0)
+            return wav_buffer, channels
+        except Exception as e:
+            self.logger.error(f"Failed to convert audio to WAV (preserving channels): {e}")
+            return None, 0
  
 
 
