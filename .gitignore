@@ -18,3 +18,5 @@ env/
 cred-gcp-drive-*.json
 
 test_files/
+
+.codex

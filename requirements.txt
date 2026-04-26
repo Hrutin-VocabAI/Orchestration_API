@@ -3,4 +3,4 @@ requests
 pydub
 torchaudio
 gunicorn
-numpy~=2.2.3
+numpy<2

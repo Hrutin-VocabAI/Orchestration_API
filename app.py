@@ -28,7 +28,7 @@ LOGGER = SYSTEM_LOGGER
 # Configuration (no dotenv - relies on os.getenv / hardcoded defaults)
 # ----------------------------------------------------------------
 HOSTNAME = os.getenv("SERVER_HOSTNAME", "http://27.111.72.61")
-
+HOSTNAME_5  = "http://192.168.30.251"  # For ASR CB!, which is on a server 5
 try:
     STORE_AUDIO = bool(strtobool(os.getenv("STORE_AUDIO", "False")))
 except ValueError:
@@ -43,10 +43,14 @@ GPU_COUNT = 1
 
 DIARIZATION_PORTS = [6001]
 ASR_PORTS         = [7001]
+# ASR_PORTS      = [7586]  # For ASR CB! on server 5
 VAD_PORTS         = [8001]
 
-DIARIZATION_URLS = [f"{HOSTNAME}:{port}/process"     for port in DIARIZATION_PORTS]
+DIARIZATION_URLS = [f"{HOSTNAME}:{port}/process" for port in DIARIZATION_PORTS]
 ASR_URLS         = [f"{HOSTNAME}:{port}/process"     for port in ASR_PORTS]
+# ASR_URLS         = [f"{HOSTNAME_5}:{port}/process" for port in ASR_PORTS]
+
+
 VAD_URLS         = [f"{HOSTNAME}:{port}/vad/process" for port in VAD_PORTS]
 
 # Round-robin iterators
