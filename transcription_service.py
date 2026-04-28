@@ -46,6 +46,11 @@ class TranscriptionService:
             return None
 
         transcription = self.transcribe_audio(speaker_audio_chunk)
+        
+        # FILTER 
+        if transcription.strip() in ["good", "Good", "nan", "Nan"]:
+            transcription = ""
+        
         return {
             "start_time": start_time,
             "end_time": end_time,
