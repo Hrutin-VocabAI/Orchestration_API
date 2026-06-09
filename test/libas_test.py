@@ -26,8 +26,7 @@ def run_tests():
         
         payload = {
             "audio_url": link,
-            "conversation_id": f"libas_test_conv_{i+1}",
-            "file_name": f"libas_call_test_{i+1}"
+            "conversation_id": f"libas_test_conv_{i+1}"
         }
         
         try:

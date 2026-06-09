@@ -365,14 +365,13 @@ def transcribe_url():
         LOGGER.error(f"[{rid}] No audio_url provided")
         return jsonify({"error": "No audio_url provided"}), 400
 
-    filename  = request.form.get("file_name", "sample_audio")
     audio_url = request.form["audio_url"]
 
     if audio_url == "":
         LOGGER.error(f"[{rid}] Empty audio_url")
         return jsonify({"error": "Empty audio_url"}), 400
 
-    LOGGER.info(f"[{rid}] [INFO] conversation_id={conversation_id}  filename={filename}")
+    LOGGER.info(f"[{rid}] [INFO] conversation_id={conversation_id}  audio_url={audio_url}")
 
     # ------------------------------------------------------------------
     # STEP A: Resolve & Download audio
@@ -381,7 +380,7 @@ def transcribe_url():
     LOGGER.info(f"[{rid}] [STEP A] Resolving and downloading audio from URL ...")
 
     helper = AudioHelper(STORE_AUDIO)
-    resolved_url, resolved_filename = helper.resolve_url_and_filename(audio_url, filename)
+    resolved_url, resolved_filename = helper.resolve_url_and_filename(audio_url, None)
     audio_data = helper.download_audio(resolved_url, filename=resolved_filename)
 
     tA1 = time.time()

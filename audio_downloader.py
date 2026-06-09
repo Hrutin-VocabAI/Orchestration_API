@@ -124,6 +124,9 @@ class AudioHelper:
             except Exception:
                 pass
         
+        if not filename or filename == "sample_audio":
+            filename = self._generate_filename(url)
+        
         return url, filename
 
     def download_audio(self, url: str, filename=None) -> io.BytesIO:
