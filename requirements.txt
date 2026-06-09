@@ -4,3 +4,4 @@ pydub
 torchaudio
 gunicorn
 numpy<2
+beautifulsoup4
