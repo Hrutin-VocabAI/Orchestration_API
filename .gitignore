@@ -20,3 +20,6 @@ cred-gcp-drive-*.json
 test_files/
 
 .codex
+
+logs_till_may_25th_3pm/
+logs_25th_may_3pm_to_29th_may_4-20pm/
