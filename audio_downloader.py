@@ -63,11 +63,68 @@ class AudioHelper:
         """Check if the URL is a valid audio file by inspecting headers."""
         try:
             response = requests.head(url, allow_redirects=True, timeout=5)
-            content_type = response.headers.get('Content-Type', '')
-            return content_type.startswith('audio/')
+            content_type = response.headers.get('Content-Type', '').lower()
+            return (
+                content_type.startswith('audio/') or
+                content_type.startswith('video/') or
+                content_type == 'application/octet-stream' or
+                any(mime in content_type for mime in MIME_TO_EXT)
+            )
         except requests.RequestException as e:
             self.logger.error(f"Failed to validate URL: {e}")
             return False
+
+    def resolve_url_and_filename(self, url: str, filename: Optional[str] = None) -> Tuple[str, str]:
+        """
+        Check if the URL points to an HTML page (UI player) or a direct audio file.
+        If it's an HTML page, parse it to extract the real audio URL and filename.
+        """
+        headers = {
+            "User-Agent": "Mozilla/5.0"
+        }
+        
+        try:
+            response = requests.head(url, headers=headers, allow_redirects=True, timeout=10)
+            content_type = response.headers.get('Content-Type', '').lower()
+        except requests.RequestException as e:
+            self.logger.warning(f"HEAD request failed to validate URL {url}: {e}. Falling back to GET.")
+            content_type = ""
+
+        if "text/html" in content_type or not content_type:
+            try:
+                r = requests.get(url, headers=headers, timeout=30)
+                if r.status_code == 200:
+                    from bs4 import BeautifulSoup
+                    from urllib.parse import urljoin
+                    soup = BeautifulSoup(r.text, "html.parser")
+                    source = soup.find("source")
+                    if source:
+                        media_path = source.get("src")
+                        if media_path:
+                            media_url = urljoin(url, media_path)
+                            extracted_filename = os.path.basename(media_path)
+                            self.logger.info(f"Resolved UI player URL {url} to audio URL {media_url} with filename {extracted_filename}")
+                            if "?" in extracted_filename:
+                                extracted_filename = extracted_filename.split("?")[0]
+                            if not filename or filename == "sample_audio":
+                                filename = extracted_filename
+                            else:
+                                ext = os.path.splitext(extracted_filename)[1]
+                                if not os.path.splitext(filename)[1] and ext:
+                                    filename = filename + ext
+                            return media_url, filename
+            except Exception as e:
+                self.logger.error(f"Failed to resolve UI player URL: {e}")
+
+        if not filename or filename == "sample_audio":
+            try:
+                path_filename = os.path.basename(url.split("?")[0])
+                if path_filename and os.path.splitext(path_filename)[1]:
+                    filename = path_filename
+            except Exception:
+                pass
+        
+        return url, filename
 
     def download_audio(self, url: str, filename=None) -> io.BytesIO:
         """Download the audio file and return it as a WAV buffer."""

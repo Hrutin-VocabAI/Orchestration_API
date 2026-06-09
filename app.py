@@ -375,12 +375,14 @@ def transcribe_url():
     LOGGER.info(f"[{rid}] [INFO] conversation_id={conversation_id}  filename={filename}")
 
     # ------------------------------------------------------------------
-    # STEP A: Download audio
+    # STEP A: Resolve & Download audio
     # ------------------------------------------------------------------
     tA0 = time.time()
-    LOGGER.info(f"[{rid}] [STEP A] Downloading audio from URL ...")
+    LOGGER.info(f"[{rid}] [STEP A] Resolving and downloading audio from URL ...")
 
-    audio_data = AudioHelper(STORE_AUDIO).download_audio(audio_url, filename=filename)
+    helper = AudioHelper(STORE_AUDIO)
+    resolved_url, resolved_filename = helper.resolve_url_and_filename(audio_url, filename)
+    audio_data = helper.download_audio(resolved_url, filename=resolved_filename)
 
     tA1 = time.time()
     if audio_data is None:
@@ -389,7 +391,7 @@ def transcribe_url():
     LOGGER.info(f"[{rid}] [STEP A DONE] Download took {tA1 - tA0:.2f}s")
 
     # Save temp file for duration
-    temp_audio_path = os.path.join(RESULTS_DIR, f"{conversation_id}_{filename}.wav")
+    temp_audio_path = os.path.join(RESULTS_DIR, f"{conversation_id}_{resolved_filename}.wav")
     with open(temp_audio_path, "wb") as fout:
         fout.write(audio_data.getvalue())
 
@@ -420,7 +422,7 @@ def transcribe_url():
         LOGGER.info(f"[{rid}] [STEP D] Calling TranscriptionService.process_audio() ...")
 
         transcription_service = TranscriptionService(asr_url, diar_url, None)
-        transcription_result  = transcription_service.process_audio(audio_data, filename + ".wav")
+        transcription_result  = transcription_service.process_audio(audio_data, resolved_filename + ".wav")
 
         tD1 = time.time()
         LOGGER.info(f"[{rid}] [STEP D DONE] process_audio took {tD1 - tD0:.2f}s  entries={len(transcription_result) if transcription_result else 0}")
@@ -432,6 +434,7 @@ def transcribe_url():
         LOGGER.info(f"[{rid}] [STEP E] Building rich response ...")
 
         response = JSONUtils.generate_rich_response(conversation_id, transcription_result, audio_duration, RESULTS_DIR)
+        response["URL"] = audio_url
 
         tE1 = time.time()
         total = time.time() - t0
