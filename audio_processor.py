@@ -39,10 +39,18 @@ class AudioProcessor:
 
     @timing_decorator("Diarization")
     def get_diarization_segments(self):
+        self.audio_buffer.seek(0)
         files = {"audio": ("audio.wav", self.audio_buffer.getvalue(), "audio/wav")}
-        response = requests.post(self.DIARIZATION_URL, files=files)
+        try:
+            response = requests.post(self.DIARIZATION_URL, files=files, timeout=600)
+        except requests.exceptions.Timeout:
+            self.LOGGER.error("Diarization request timed out (600s)")
+            return []
+        except requests.exceptions.ConnectionError:
+            self.LOGGER.error("Diarization service connection refused")
+            return []
         if response.status_code != 200:
-            logging.error(f"Diarization Error: {response.text}")
+            self.LOGGER.error(f"Diarization Error: {response.text}")
             return []
         return response.json().get("segments", [])
 

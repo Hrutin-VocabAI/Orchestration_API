@@ -1,4 +1,6 @@
 bind = "0.0.0.0:5000"
-workers = 4  # Adjust based on your CPU cores
-timeout = 300
+workers = 4
+worker_class = "gthread"
+threads = 4
+timeout = 900
 # reload = True
