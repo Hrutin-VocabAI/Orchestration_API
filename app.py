@@ -11,6 +11,7 @@ from flask import Flask, request, jsonify, g
 from pydub import AudioSegment
 
 from audio_downloader import AudioHelper
+from audio_processor import DiarizationUnavailableError
 from request_validator import RequestValidator
 from logger import SYSTEM_LOGGER, log_request
 from transcription_service import TranscriptionService
@@ -28,7 +29,8 @@ LOGGER = SYSTEM_LOGGER
 # ----------------------------------------------------------------
 # Configuration (no dotenv - relies on os.getenv / hardcoded defaults)
 # ----------------------------------------------------------------
-HOSTNAME = os.getenv("SERVER_HOSTNAME", "http://27.111.72.61")
+# HOSTNAME = os.getenv("SERVER_HOSTNAME", "http://27.111.72.61")
+HOSTNAME = os.getenv("SERVER_HOSTNAME", "http://localhost")  # For local testing
 HOSTNAME_5  = "http://192.168.30.251"  # For ASR CB!, which is on a server 5
 try:
     STORE_AUDIO = bool(strtobool(os.getenv("STORE_AUDIO", "False")))
@@ -224,6 +226,10 @@ def transcribe():
         LOGGER.info(f"[{rid}] ===== /transcribe COMPLETE in {total:.2f}s =====")
 
         return jsonify(response), 200
+
+    except DiarizationUnavailableError as e:
+        LOGGER.error(f"[{rid}] Diarization unavailable: {e}")
+        return jsonify({"error": "Transcription service is temporarily unavailable. Please retry shortly."}), 503
 
     finally:
         if os.path.exists(temp_audio_path):
@@ -441,6 +447,10 @@ def transcribe_url():
         LOGGER.info(f"[{rid}] ===== /url_transcribe COMPLETE in {total:.2f}s =====")
 
         return jsonify(response), 200
+
+    except DiarizationUnavailableError as e:
+        LOGGER.error(f"[{rid}] Diarization unavailable: {e}")
+        return jsonify({"error": "Transcription service is temporarily unavailable. Please retry shortly."}), 503
 
     finally:
         if os.path.exists(temp_audio_path):

@@ -9,8 +9,18 @@ import torchaudio.functional as F
 from logger import timing_decorator, SYSTEM_LOGGER
 
 TARGET_SAMPLE_RATE = 16000
+DIARIZATION_TIMEOUT = 150
 
 # from flask_app.logger import get_logger
+
+
+class DiarizationUnavailableError(Exception):
+    """Raised when the diarization backend can't be reached, times out, or errors.
+
+    Distinct from a successful call that legitimately finds no segments -
+    callers should surface this to the client instead of returning an empty transcript.
+    """
+    pass
 
 
 class AudioProcessor:
@@ -42,16 +52,16 @@ class AudioProcessor:
         self.audio_buffer.seek(0)
         files = {"audio": ("audio.wav", self.audio_buffer.getvalue(), "audio/wav")}
         try:
-            response = requests.post(self.DIARIZATION_URL, files=files, timeout=600)
-        except requests.exceptions.Timeout:
-            self.LOGGER.error("Diarization request timed out (600s)")
-            return []
-        except requests.exceptions.ConnectionError:
-            self.LOGGER.error("Diarization service connection refused")
-            return []
+            response = requests.post(self.DIARIZATION_URL, files=files, timeout=DIARIZATION_TIMEOUT)
+        except requests.exceptions.Timeout as e:
+            self.LOGGER.error(f"Diarization request timed out ({DIARIZATION_TIMEOUT}s): {e}")
+            raise DiarizationUnavailableError("Diarization service timed out") from e
+        except requests.exceptions.ConnectionError as e:
+            self.LOGGER.error(f"Diarization service connection refused: {e}")
+            raise DiarizationUnavailableError("Diarization service unreachable") from e
         if response.status_code != 200:
-            self.LOGGER.error(f"Diarization Error: {response.text}")
-            return []
+            self.LOGGER.error(f"Diarization Error: {response.status_code} - {response.text}")
+            raise DiarizationUnavailableError(f"Diarization service returned {response.status_code}")
         return response.json().get("segments", [])
 
     def extract_speaker_chunk(self, start_time, end_time):
