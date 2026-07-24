@@ -59,20 +59,34 @@ class AudioHelper:
         """Generate a unique filename based on the URL hash."""
         return hashlib.md5(url.encode()).hexdigest()
 
-    def _is_valid_audio_url(self, url: str) -> bool:
-        """Check if the URL is a valid audio file by inspecting headers."""
+    def _validate_audio_url(self, url: str) -> Tuple[bool, Optional[str]]:
+        """
+        Check if the URL is a valid audio file by inspecting headers.
+        Returns (True, None) if valid, or (False, reason) with a specific,
+        human-readable explanation - e.g. a DNS/connection failure vs. an
+        unexpected Content-Type - rather than a bare boolean that collapses
+        every failure mode into the same generic error downstream.
+        """
         try:
             response = requests.head(url, allow_redirects=True, timeout=5)
-            content_type = response.headers.get('Content-Type', '').lower()
-            return (
-                content_type.startswith('audio/') or
-                content_type.startswith('video/') or
-                content_type == 'application/octet-stream' or
-                any(mime in content_type for mime in MIME_TO_EXT)
-            )
         except requests.RequestException as e:
+            reason = f"Could not reach audio URL ({type(e).__name__}): {e}"
             self.logger.error(f"Failed to validate URL: {e}")
-            return False
+            return False, reason
+
+        content_type = response.headers.get('Content-Type', '').lower()
+        is_valid = (
+            content_type.startswith('audio/') or
+            content_type.startswith('video/') or
+            content_type == 'application/octet-stream' or
+            any(mime in content_type for mime in MIME_TO_EXT)
+        )
+        if not is_valid:
+            return False, (
+                f"URL returned HTTP {response.status_code} with Content-Type "
+                f"'{content_type or '(none)'}', which is not a recognized audio type"
+            )
+        return True, None
 
     def resolve_url_and_filename(self, url: str, filename: Optional[str] = None) -> Tuple[str, str]:
         """
@@ -131,9 +145,10 @@ class AudioHelper:
 
     def download_audio(self, url: str, filename=None) -> io.BytesIO:
         """Download the audio file and return it as a WAV buffer."""
-        if not self._is_valid_audio_url(url):
-            self.logger.error("Invalid audio URL")
-            raise InvalidAudioError(f"Invalid audio content type")
+        is_valid, reason = self._validate_audio_url(url)
+        if not is_valid:
+            self.logger.error(f"Invalid audio URL: {reason}")
+            raise InvalidAudioError(reason)
 
         try:
             response = requests.get(url, stream=True, timeout=30)

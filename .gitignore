@@ -3,6 +3,7 @@ __pycache__/
 
 logs/
 transcription_results/
+health_checkpoints/
 
 *.mp3
 *.wav

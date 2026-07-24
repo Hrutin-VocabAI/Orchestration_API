@@ -15,6 +15,7 @@ from audio_processor import DiarizationUnavailableError
 from request_validator import RequestValidator
 from logger import SYSTEM_LOGGER, log_request
 from transcription_service import TranscriptionService
+from Health_check_Service import HealthCheckService
 from function_services import (
     TranscriptHandler,
     SentimentProcessor,
@@ -77,6 +78,26 @@ def get_next_asr_url():
 
 def get_next_vad_url():
     return next(vad_iter)
+
+
+# ----------------------------------------------------------------
+# Health checks - one HealthCheckService instance per client. Each runs a
+# fixed reference audio through the real pipeline and diffs against a saved
+# baseline (see Health_check_Service.py). Add a new client by instantiating
+# another HealthCheckService + route below - no other wiring needed.
+# ----------------------------------------------------------------
+LIBAS_HEALTH_AUDIO_URL = os.getenv(
+    "LIBAS_HEALTH_AUDIO_URL",
+    "https://libas-admin.c-zentrixcloud.com/playmediaAPI.php?agent_id=2004&session_id=1780889615.3400000000",
+)
+
+libas_health_service = HealthCheckService(
+    client_name="Libas",
+    audio_url=LIBAS_HEALTH_AUDIO_URL,
+    get_asr_url=get_next_asr_url,
+    get_diarization_url=get_next_diarization_url,
+    results_dir=RESULTS_DIR,
+)
 
 
 # ----------------------------------------------------------------
@@ -229,7 +250,7 @@ def transcribe():
 
     except DiarizationUnavailableError as e:
         LOGGER.error(f"[{rid}] Diarization unavailable: {e}")
-        return jsonify({"error": "Transcription service is temporarily unavailable. Please retry shortly."}), 503
+        return jsonify({"error": "there is an error facing issue, whicle processing the request"}), 503
 
     finally:
         if os.path.exists(temp_audio_path):
@@ -450,11 +471,33 @@ def transcribe_url():
 
     except DiarizationUnavailableError as e:
         LOGGER.error(f"[{rid}] Diarization unavailable: {e}")
-        return jsonify({"error": "Transcription service is temporarily unavailable. Please retry shortly."}), 503
+        return jsonify({"error": "there is an error facing issue, whicle processing the request"}), 503
 
     finally:
         if os.path.exists(temp_audio_path):
             os.remove(temp_audio_path)
+
+
+# ----------------------------------------------------------------
+# /LIBAS_HEALTH  (functional canary check - runs a fixed reference audio
+# through the real pipeline and diffs the result against a saved baseline)
+# ----------------------------------------------------------------
+@app.route("/LIBAS_HEALTH", methods=["GET"])
+def libas_health():
+    if not libas_health_service.audio_url:
+        return jsonify({
+            "status": "FAIL",
+            "client": "Libas",
+            "triggers": ["TRIGGER: NOT_CONFIGURED - LIBAS_HEALTH_AUDIO_URL is not set"],
+        }), 503
+
+    if request.args.get("save_baseline") == "true":
+        response = libas_health_service.save_baseline()
+        return jsonify({"status": "BASELINE_SAVED", "client": "Libas", "response": response}), 200
+
+    result = libas_health_service.check()
+    status_code = 200 if result["status"] == "PASS" else 503
+    return jsonify(result), status_code
 
 
 # ----------------------------------------------------------------
